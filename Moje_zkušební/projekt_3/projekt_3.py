@@ -93,7 +93,7 @@ def scrapuj_data_obce(url):
     except Exception as e:
         print(f"Chyba při zpracování {url}: {e}")
         return None
-    
+      
 def ulož_výsledky_do_csv(data, výstupní_soubor):
     if not data:
         print("Žádná platná data k uložení.")
