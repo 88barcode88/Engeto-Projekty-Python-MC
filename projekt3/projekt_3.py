@@ -100,6 +100,7 @@ def ulož_výsledky_do_csv(data, výstupní_soubor):
         return
 
     try:
+        print(f"Pokouším se uložit do souboru: {výstupní_soubor}")
         with open(výstupní_soubor, 'w', newline='', encoding='utf-8-sig') as soubor:
             writer = csv.writer(soubor)
             hlavičky = ["kód", "obec", "voliči", "vydané_obálky", "platné_hlasy"] + [f"strana_{i+1}" for i in range(len(data[0]) - 5)]

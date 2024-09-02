@@ -1,170 +1,165 @@
-"""
-projekt_3.py: třetí projekt do Engeto Online Python Akademie
-
-author: Miroslav Coufalik
-email: mira.coufa@gmail.com
-discord: 88barcode88#1001
-"""
-
-import sys
 import requests
 from bs4 import BeautifulSoup
 import csv
+import sys
 import argparse
 
-def validate_url(url):
-    """Validuje, zda je URL správně formátovaná a dostupná."""
+def ověř_url(url):
     try:
-        response = requests.get(url)
-        if response.status_code == 200:
+        odpověď = requests.get(url)
+        if odpověď.status_code == 200:
             return True
         else:
-            print(f"Chyba: URL není dostupná. Status code: {response.status_code}")
+            print(f"Chyba: URL není dostupná. Stavový kód: {odpověď.status_code}")
             return False
     except requests.exceptions.RequestException as e:
         print(f"Chyba: Neplatná URL nebo problém se sítí. Detaily: {e}")
         return False
 
-def get_soup(url):
+def získej_soup(url):
     try:
-        response = requests.get(url)
-        response.raise_for_status()  # Raise an exception for bad status codes
+        odpověď = requests.get(url)
+        odpověď.raise_for_status()
         print(f"Úspěšně načtena stránka: {url}")
-        return BeautifulSoup(response.text, 'html.parser')
+        return BeautifulSoup(odpověď.text, 'html.parser')
     except requests.RequestException as e:
         print(f"Chyba při načítání stránky {url}: {e}")
         return None
 
-def extract_municipality_links(soup):
-    """Extrahuje odkazy na všechny obce z dané stránky."""
-    links = []
-    tables = soup.find_all('table', {'class': 'table'})
-    for table in tables:
-        rows = table.find_all('tr')
-        for row in rows[1:]:  # Přeskočíme hlavičku tabulky
-            cells = row.find_all('td')
-            if len(cells) >= 2:
-                link = cells[0].find('a')
-                if link:
-                    href = link.get('href')
-                    if href:
-                        links.append(f"https://volby.cz/pls/ps2017nss/{href}")
-    return links
+def extrahuj_kódy_a_názvy_obcí(url):
+    soup = získej_soup(url)
+    if not soup:
+        return None, None
 
-def scrape_municipality_data(url):
-    """Stáhne data z výsledků jedné obce."""
+    odkazy_obcí = []
+    kódy_a_názvy = {}
+    
+    for řádek in soup.find_all('tr'):
+        buňky = řádek.find_all('td')
+        if len(buňky) >= 3:
+            odkaz = buňky[0].find('a')
+            if odkaz and 'href' in odkaz.attrs:
+                href = odkaz['href']
+                kód_obce = odkaz.text.strip()
+                název_obce = buňky[1].text.strip()
+                plná_url = f"https://volby.cz/pls/ps2017nss/{href}"
+                
+                odkazy_obcí.append(plná_url)
+                kódy_a_názvy[kód_obce] = název_obce
+    
+    return odkazy_obcí, kódy_a_názvy
+
+def scrapuj_data_obce(url, kód_obce, kódy_a_názvy):
     print(f"Zpracovávám URL: {url}")
-    soup = get_soup(url)
+    soup = získej_soup(url)
     if not soup:
         print(f"Nepodařilo se získat obsah stránky: {url}")
         return None
 
     try:
-        # Hledáme kód obce a název obce
-        code_element = soup.find('td', {'class': 'cislo'})
-        if code_element:
-            code = code_element.text.strip()
-        else:
-            print("Kód obce nebyl nalezen.")
-            return None
+        # Získání volebních údajů pro obec
+        voliči_element = soup.find('td', class_='cislo', headers='sa2')
+        voliči = voliči_element.text.strip().replace('\xa0', '') if voliči_element else '0'
 
-        name_element = soup.find('h3')
-        if name_element:
-            name = name_element.text.strip().split(':')[-1].strip()
-        else:
-            print("Název obce nebyl nalezen.")
-            return None
+        obálky_element = soup.find('td', class_='cislo', headers='sa5')
+        obálky = obálky_element.text.strip().replace('\xa0', '') if obálky_element else '0'
 
-        print(f"Nalezeno: Kód obce: {code}, Název obce: {name}")
+        platné_hlasy_element = soup.find('td', class_='cislo', headers='sa6')
+        platné_hlasy = platné_hlasy_element.text.strip().replace('\xa0', '') if platné_hlasy_element else '0'
 
-        voters = soup.select_one('td[headers="sa2"]')
-        envelopes = soup.select_one('td[headers="sa3"]')
-        valid_votes = soup.select_one('td[headers="sa6"]')
-        
-        voters = voters.text.replace('\xa0', '') if voters else '0'
-        envelopes = envelopes.text.replace('\xa0', '') if envelopes else '0'
-        valid_votes = valid_votes.text.replace('\xa0', '') if valid_votes else '0'
-        
-        print(f"Základní data: Voliči: {voters}, Obálky: {envelopes}, Platné hlasy: {valid_votes}")
-        
-        # Najdeme tabulku s výsledky stran
-        results_table = soup.find('table', {'class': 'table'})
-        if not results_table:
-            print(f"Nenalezena tabulka s výsledky na URL: {url}")
-            return None
-        
-        # Získáme počty hlasů (přeskakujeme názvy stran)
-        votes = []
-        vote_cells = results_table.select('td[headers="t1sa2 t1sb3"], td[headers="t2sa2 t2sb3"]')
-        for cell in vote_cells:
-            votes.append(cell.text.replace('\xa0', '').replace(',', '').strip())
-        
-        if not votes:
-            print(f"Nenalezeny žádné hlasy na URL: {url}")
-            return None
+        # Získání hlasů a čísel pro jednotlivé strany
+        hlasy_stran = []
+        for tabulka in soup.find_all('div', class_='t2_470'):
+            řádky = tabulka.find_all('tr')
+            for řádek in řádky[1:]:  # Přeskočíme záhlaví tabulky
+                buňky = řádek.find_all('td')
+                if len(buňky) >= 3:
+                    číslo_strany_element = buňky[0]
+                    název_strany_element = buňky[1]
+                    hlasy_element = buňky[2]
 
-        print(f"Nalezeno {len(votes)} výsledků hlasování.")
+                    číslo_strany = int(číslo_strany_element.text.strip()) if číslo_strany_element.text.strip().isdigit() else 0
+                    název_strany = název_strany_element.text.strip() if název_strany_element else '0'
+                    hlasy = hlasy_element.text.strip().replace('\xa0', '') if hlasy_element else '0'
 
-        return [code, name, voters, envelopes, valid_votes] + votes
+                    if číslo_strany != 0:
+                        hlasy_stran.append((číslo_strany, název_strany, hlasy))
+
+        # Seřazení stran podle jejich čísla
+        hlasy_stran.sort(key=lambda x: x[0])
+
+        název_obce = kódy_a_názvy.get(kód_obce, 'Neznámá obec')
+        return [kód_obce, název_obce, voliči, obálky, platné_hlasy, hlasy_stran]
 
     except Exception as e:
         print(f"Chyba při zpracování {url}: {e}")
         return None
-    
-def save_results_to_csv(data, output_file):
-    """Uloží data do CSV souboru."""
-    valid_data = [row for row in data if row is not None]
-    if not valid_data:
+
+def ulož_výsledky_do_csv(data, výstupní_soubor):
+    if not data:
         print("Žádná platná data k uložení.")
         return
 
     try:
-        # Získáme názvy stran z prvního záznamu, pokud existuje
-        num_parties = len(valid_data[0]) - 5 if valid_data else 0
-        headers = ["Kód obce", "Název obce", "Voliči v seznamu", "Vydané obálky", "Platné hlasy"] + [f"Strana {i+1}" for i in range(num_parties)]
-        
-        with open(output_file, 'w', newline='', encoding='utf-8-sig') as file:
-            writer = csv.writer(file)
-            writer.writerow(headers)
-            for row in valid_data:
-                writer.writerow(row)
+        # Získání všech stran a jejich čísel
+        všechny_strany = {}
+        for obec_data in data:
+            for číslo, název, _ in obec_data[5]:
+                všechny_strany[číslo] = název
 
-        print(f"Data byla uložena do souboru {output_file}. Celkem uloženo {len(valid_data)} záznamů.")
+        # Seřazení stran podle jejich čísla
+        seřazené_strany = sorted(všechny_strany.items())
+
+        hlavičky = ["kód obce", "název obce", "voliči v seznamu", "vydané obálky", "platné hlasy"] + [název for _, název in seřazené_strany]
+
+        with open(výstupní_soubor, 'w', newline='', encoding='utf-8-sig') as soubor:
+            writer = csv.writer(soubor)
+            writer.writerow(hlavičky)
+
+            for obec_data in data:
+                řádek = obec_data[:5]
+                strany_hlasy = {číslo: '0' for číslo, _ in seřazené_strany}
+                for číslo, _, hlasy in obec_data[5]:
+                    strany_hlasy[číslo] = hlasy
+                řádek += [strany_hlasy[číslo] for číslo, _ in seřazené_strany]
+                writer.writerow(řádek)
+
+        print(f"Data úspěšně uložena do {výstupní_soubor}")
+
     except Exception as e:
-        print(f"Chyba při ukládání dat do souboru: {e}")
+        print(f"Chyba při ukládání dat do CSV: {e}")
 
 def main():
-    parser = argparse.ArgumentParser(description="Scrape výsledků voleb z roku 2017 pro zvolený územní celek.")
-    parser.add_argument('url', type=str, help="URL územního celku ke scrapování.")
-    parser.add_argument('output_file', type=str, help="Název výstupního CSV souboru.")
+    parser = argparse.ArgumentParser(description="Scrapování volebních výsledků z roku 2017 pro vybranou správní jednotku.")
+    parser.add_argument('url', type=str, help="URL správní jednotky ke scrapování.")
+    parser.add_argument('výstupní_soubor', type=str, help="Název výstupního CSV souboru.")
 
     args = parser.parse_args()
 
-    soup = get_soup(args.url)
-    if not soup:
-        print("Nepodařilo se načíst vstupní stránku.")
+    if not ověř_url(args.url):
         sys.exit(1)
 
-    municipality_links = extract_municipality_links(soup)
+    odkazy_obcí, kódy_a_názvy = extrahuj_kódy_a_názvy_obcí(args.url)
     
-    if not municipality_links:
+    if not odkazy_obcí:
         print("Nenalezeny žádné platné odkazy na obce.")
         sys.exit(1)
 
-    all_data = []
-    for link in municipality_links:
-        print(f"Scrapuji data z {link}...")
-        municipality_data = scrape_municipality_data(link)
-        if municipality_data:
-            all_data.append(municipality_data)
+    všechna_data = []
+    for odkaz in odkazy_obcí:
+        kód_obce = odkaz.split("xobec=")[1].split("&")[0]  # Extract the code from the URL
+        data_obce = scrapuj_data_obce(odkaz, kód_obce, kódy_a_názvy)
+        if data_obce:
+            všechna_data.append(data_obce)
+            print(f"Úspěšně získána data pro {data_obce[1]}")  # Vypíše název obce
         else:
-            print(f"Nepodařilo se získat data pro {link}")
+            print(f"Nepodařilo se získat data pro {odkaz}")
 
-    if not all_data:
+    if not všechna_data:
         print("Nepodařilo se získat žádná platná data.")
         sys.exit(1)
 
-    save_results_to_csv(all_data, args.output_file)
+    ulož_výsledky_do_csv(všechna_data, args.výstupní_soubor)
 
 if __name__ == "__main__":
     main()
