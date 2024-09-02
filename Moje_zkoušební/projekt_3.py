@@ -1,5 +1,5 @@
 """
-projekt_3.py: druhý projekt do Engeto Online Python Akademie
+projekt_3.py: třetí projekt do Engeto Online Python Akademie
 
 author: Miroslav Coufalik
 email: mira.coufa@gmail.com
