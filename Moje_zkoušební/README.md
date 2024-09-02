@@ -18,12 +18,15 @@ git clone https://github.com/88barcode88/Engeto-Projekty-Python-MC.git
 cd Engeto-Projekty-Python-MC
 
 Vytvořte virtuální prostředí:
-Copypython -m venv venv
+python -m venv venv
 
 Aktivujte virtuální prostředí:
+..\venv\Scripts\activate
 
 Windows: venv\Scripts\activate
 macOS/Linux: source venv/bin/activate
+
+Po aktivaci byste měli vidět (venv) na začátku příkazového řádku, což indikuje, že virtuální prostředí je aktivní.
 
 Nainstalujte potřebné knihovny:
 pip install -r requirements.txt
@@ -39,18 +42,18 @@ python projekt_3.py  <odkaz-uzemniho-celku> <vysledny-soubor.csv>
 U mého přiloženého souboru to je:
 python projekt_3.py "https://volby.cz/pls/ps2017nss/ps32?xjazyk=CZ&xkraj=12&xnumnuts=7103" "vysledky_prostejov.csv"
 
-Ukázka výstupu:
+Průběh stahování:
 Zpracovávám URL: https://volby.cz/pls/ps2017nss/ps311?xjazyk=CZ&xkraj=12&xobec=590240&xvyber=7103
 Úspěšně načtena stránka: https://volby.cz/pls/ps2017nss/ps311?xjazyk=CZ&xkraj=12&xobec=590240&xvyber=7103
 Úspěšně získána data pro Želeč
 Data úspěšně uložena do vysledky_prostejov.csv
 
-Průběh stahování
-
+částečný výstup:
 Po úspěšném spuštění program vytvoří CSV soubor s následující strukturou:
 kód obce,název obce,voliči v seznamu,vydané obálky,platné hlasy,Občanská demokratická strana,Řád národa - Vlastenecká unie,...
 506761,Alojzov,205,145,144,29,0,...
 589268,Bedihošť,834,527,524,51,0,...
 ...
-Poznámky
 
+Po kontrole nezapomeňte ukončit virtualní prostředí. Pro deaktivaci virtuálního prostředí použijte:
+deactivate
