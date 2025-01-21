@@ -1,0 +1,309 @@
+import json
+from datetime import datetime
+from kivy.app import App
+from kivy.uix.boxlayout import BoxLayout
+from kivy.uix.button import Button
+from kivy.uix.textinput import TextInput
+from kivy.uix.label import Label
+from kivy.uix.scrollview import ScrollView
+from kivy.uix.gridlayout import GridLayout
+from kivy.uix.spinner import Spinner
+from kivy.uix.popup import Popup
+from kivy.uix.relativelayout import RelativeLayout
+from kivy.uix.checkbox import CheckBox
+from task_model import Task, TaskModel
+
+class BaseWidget(BoxLayout):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.orientation = 'vertical'
+        self.padding = 10
+        self.spacing = 5
+
+    def add_label(self, text, **kwargs):
+        label = Label(text=text, **kwargs)
+        self.add_widget(label)
+        return label
+
+    def add_button(self, text, on_press, **kwargs):
+        button = Button(text=text, on_press=on_press, **kwargs)
+        self.add_widget(button)
+        return button
+
+    def add_text_input(self, hint_text="", **kwargs):
+        text_input = TextInput(hint_text=hint_text, multiline=False, **kwargs)
+        self.add_widget(text_input)
+        return text_input
+
+    def add_spinner(self, text, values, **kwargs):
+        spinner = Spinner(text=text, values=values, **kwargs)
+        self.add_widget(spinner)
+        return spinner
+    
+class TaskButton(RelativeLayout):
+    def __init__(self, task, edit_callback, delete_callback, **kwargs):
+        super().__init__(**kwargs)
+        self.task = task
+        self.size_hint_y = None
+        self.height = 50
+
+        self.main_button = Button(text=task.text, background_color=self.get_color_for_priority(task.priority))
+        self.main_button.bind(on_press=edit_callback)
+        self.add_widget(self.main_button)
+
+        self.due_date_label = Label(text=self.format_due_date(), font_size='10sp', size_hint=(None, None), 
+                                    size=(150, 20), pos_hint={'right': 1, 'top': 1})
+        self.add_widget(self.due_date_label)
+
+        create_date = datetime.fromisoformat(task.date_added).strftime("%d.%m.%Y %H:%M")
+        self.create_date_label = Label(text=create_date, font_size='10sp', size_hint=(None, None), 
+                                       size=(150, 20), pos_hint={'right': 1, 'y': 0})
+        self.add_widget(self.create_date_label)
+
+        delete_button = Button(text='X', size_hint=(None, None), size=(30, 30), 
+                               pos_hint={'left': 1, 'top': 1}, background_color=[0, 0, 0, 1],
+                               color=[1, 1, 1, 1])
+        delete_button.bind(on_release=delete_callback)
+        self.add_widget(delete_button)
+
+    def get_color_for_priority(self, priority):
+        return {
+            'Vysoká': [1, 0, 0, 1],
+            'Střední': [1, 0.65, 0, 1],
+            'Nízká': [0, 1, 0, 1]
+        }.get(priority, [0, 0, 1, 1])
+
+    def format_due_date(self):
+        if self.task.due_date:
+            try:
+                due_date = datetime.fromisoformat(self.task.due_date)
+                if due_date.hour == 0 and due_date.minute == 0:
+                    return f"Do: {due_date.strftime('%d.%m.%Y')}"
+                else:
+                    return f"Do: {due_date.strftime('%d.%m.%Y %H:%M')}"
+            except ValueError:
+                return "Neplatné datum"
+        return ""
+    
+class EditPopup(Popup):
+    def __init__(self, task, save_callback, categories, **kwargs):
+        super().__init__(**kwargs)
+        self.task = task
+        self.save_callback = save_callback
+        self.title = 'Upravit úkol'
+        self.size_hint = (0.9, 0.7)
+
+        content = BoxLayout(orientation='vertical', spacing=10, padding=10)
+
+        self.task_input = TextInput(text=task.text, multiline=False)
+        content.add_widget(self.task_input)
+
+        self.priority_spinner = Spinner(text=task.priority, values=('Vysoká', 'Střední', 'Nízká'))
+        content.add_widget(self.priority_spinner)
+
+        self.category_spinner = Spinner(text=task.category, values=categories)
+        content.add_widget(self.category_spinner)
+
+        due_date_layout = BoxLayout(orientation='horizontal', spacing=5)
+        self.due_date_input = TextInput(hint_text='Datum splnění (DD.MM.YYYY)', multiline=False)
+        due_date_layout.add_widget(self.due_date_input)
+        self.due_time_input = TextInput(hint_text='Čas (HH:MM)', multiline=False)
+        due_date_layout.add_widget(self.due_time_input)
+        content.add_widget(due_date_layout)
+
+        if task.due_date:
+            due_date = datetime.fromisoformat(task.due_date)
+            self.due_date_input.text = due_date.strftime('%d.%m.%Y')
+            if due_date.hour != 0 or due_date.minute != 0:
+                self.due_time_input.text = due_date.strftime('%H:%M')
+
+        save_button = Button(text='Uložit', size_hint_y=None, height=40)
+        save_button.bind(on_press=self.save_task)
+        content.add_widget(save_button)
+
+        self.content = content
+
+    def save_task(self, instance):
+        new_text = self.task_input.text
+        new_priority = self.priority_spinner.text
+        new_category = self.category_spinner.text
+        
+        new_due_date = None
+        if self.due_date_input.text:
+            try:
+                new_due_date = datetime.strptime(self.due_date_input.text, '%d.%m.%Y')
+                if self.due_time_input.text:
+                    time = datetime.strptime(self.due_time_input.text, '%H:%M')
+                    new_due_date = new_due_date.replace(hour=time.hour, minute=time.minute)
+                new_due_date = new_due_date.isoformat()
+            except ValueError:
+                print("Neplatné datum nebo čas")
+
+        updated_task = Task(new_text, new_priority, new_category, new_due_date, self.task.date_added)
+        self.save_callback(updated_task)
+        self.dismiss()
+
+class OrganizerLayout(BoxLayout):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.orientation = 'vertical'
+        self.padding = 10
+        self.spacing = 10
+        self.categories = ['Práce', 'Osobní', 'Nákupy', 'Jiné']
+        self.task_model = TaskModel()
+
+        self.add_widget(Label(text='Můj Organizér', font_size=24, bold=True, size_hint_y=None, height=40))
+
+        input_layout = BoxLayout(orientation='horizontal', size_hint_y=None, height=40)
+        self.task_input = TextInput(hint_text='Zadejte nový úkol', multiline=False, size_hint_x=0.4)
+        input_layout.add_widget(self.task_input)
+
+        self.priority_spinner = Spinner(text='Střední', values=('Vysoká', 'Střední', 'Nízká'), size_hint_x=0.2)
+        input_layout.add_widget(self.priority_spinner)
+
+        self.category_spinner = Spinner(text='Práce', values=self.categories, size_hint_x=0.2)
+        input_layout.add_widget(self.category_spinner)
+
+        self.due_date_input = TextInput(hint_text='Datum splnění', multiline=False, size_hint_x=0.2)
+        input_layout.add_widget(self.due_date_input)
+
+        self.add_widget(input_layout)
+
+        button_layout = BoxLayout(orientation='horizontal', size_hint_y=None, height=40)
+        add_button = Button(text='Přidat úkol', size_hint_x=0.25)
+        add_button.bind(on_press=self.add_task)
+        button_layout.add_widget(add_button)
+        
+        self.sort_spinner = Spinner(text='Bez řazení', values=('Bez řazení', 'Podle priority', 'Podle data vytvoření', 'Podle data splnění'), size_hint_x=0.25)
+        self.sort_spinner.bind(text=self.on_sort_change)
+        button_layout.add_widget(self.sort_spinner)
+
+        self.filter_spinner = Spinner(text='Všechny kategorie', values=['Všechny kategorie'] + self.categories, size_hint_x=0.25)
+        self.filter_spinner.bind(text=self.on_filter_change)
+        button_layout.add_widget(self.filter_spinner)
+
+        help_button = Button(text='?', size_hint_x=0.1)
+        help_button.bind(on_press=self.show_help)
+        button_layout.add_widget(help_button)
+
+        self.add_widget(button_layout)
+
+        self.tasks_layout = GridLayout(cols=1, spacing=5, size_hint_y=None)
+        self.tasks_layout.bind(minimum_height=self.tasks_layout.setter('height'))
+
+        scroll_view = ScrollView(size_hint=(1, 1))
+        scroll_view.add_widget(self.tasks_layout)
+        self.add_widget(scroll_view)
+
+        self.load_tasks()
+
+    def load_tasks(self):
+        self.task_model.load_tasks()
+        self.apply_filter_and_sort()
+
+    def add_task(self, instance):
+        task = self.task_input.text.strip()
+        priority = self.priority_spinner.text
+        category = self.category_spinner.text
+        due_date = None
+        if self.due_date_input.text:
+            try:
+                due_date = datetime.strptime(self.due_date_input.text, '%d.%m.%Y')
+                due_date = due_date.isoformat()
+            except ValueError:
+                print("Neplatné datum")
+        if task:
+            new_task = Task(task, priority, category, due_date)
+            self.task_model.add_task(new_task)
+            self.task_input.text = ''
+            self.due_date_input.text = ''
+            self.apply_filter_and_sort()
+
+    def edit_task(self, task):
+        index = self.task_model.get_tasks().index(task)
+        popup = EditPopup(task, lambda updated_task: self.save_edited_task(index, updated_task), self.categories)
+        popup.open()
+
+    def save_edited_task(self, index, updated_task):
+        self.task_model.edit_task(index, updated_task)
+        self.apply_filter_and_sort()
+
+    def delete_task(self, task):
+        index = self.task_model.get_tasks().index(task)
+        self.task_model.delete_task(index)
+        self.apply_filter_and_sort()
+
+    def apply_filter_and_sort(self):
+        self.tasks_layout.clear_widgets()
+        
+        filtered_tasks = self.task_model.filter_tasks(self.filter_spinner.text)
+        
+        if self.sort_spinner.text != 'Bez řazení':
+            sort_key = {
+                'Podle priority': 'priority',
+                'Podle data vytvoření': 'date_added',
+                'Podle data splnění': 'due_date'
+            }[self.sort_spinner.text]
+            filtered_tasks = self.task_model.sort_tasks(filtered_tasks, sort_key)
+        
+        if self.filter_spinner.text == 'Všechny kategorie':
+            tasks_by_category = {category: [] for category in self.categories}
+            for task in filtered_tasks:
+                tasks_by_category[task.category].append(task)
+            
+            for category in self.categories:
+                if tasks_by_category[category]:
+                    category_label = Label(text=category, size_hint_y=None, height=30, bold=True)
+                    self.tasks_layout.add_widget(category_label)
+                    for task in tasks_by_category[category]:
+                        task_button = self.create_task_button(task)
+                        self.tasks_layout.add_widget(task_button)
+        else:
+            for task in filtered_tasks:
+                task_button = self.create_task_button(task)
+                self.tasks_layout.add_widget(task_button)
+
+    def create_task_button(self, task):
+        return TaskButton(
+            task=task,
+            edit_callback=lambda instance: self.edit_task(task),
+            delete_callback=lambda instance: self.delete_task(task)
+        )
+
+    def on_sort_change(self, spinner, text):
+        self.apply_filter_and_sort()
+
+    def on_filter_change(self, spinner, text):
+        self.apply_filter_and_sort()
+
+    def show_help(self, instance):
+        help_text = """
+Barvy priorit:
+Červená - Vysoká priorita
+Oranžová - Střední priorita
+Zelená - Nízká priorita
+
+Úkoly jsou seskupeny podle kategorií, když je vybráno 'Všechny kategorie'.
+
+Kliknutím na úkol ho upravíte.
+Kliknutím na 'X' úkol smažete.
+Datum a čas vytvoření úkolu je zobrazen malým písmem vpravo dole.
+Datum splnění úkolu (pokud je nastaveno) je zobrazeno malým písmem vpravo nahoře.
+
+Při přidávání nebo úpravě úkolu můžete zadat datum splnění ve formátu DD.MM.YYYY.
+Čas splnění je volitelný a zadává se ve formátu HH:MM.
+
+Použijte rozbalovací menu pro řazení a filtrování úkolů.
+        """
+        popup = Popup(title='Nápověda',
+                      content=Label(text=help_text),
+                      size_hint=(0.8, 0.8))
+        popup.open()
+
+class OrganizerApp(App):
+    def build(self):
+        return OrganizerLayout()
+
+if __name__ == '__main__':
+    OrganizerApp().run()
+    
